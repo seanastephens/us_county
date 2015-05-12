@@ -363,6 +363,8 @@ angular.module("app", []).controller("name_ctrl", function($scope){
 });
 
 // Map Search
+var width = 920, height = 600;
+var path = d3.geo.path();
 var zoomScale_1 = d3.behavior.zoom()
 	.scaleExtent([1,10])
 	.on("zoom", zoomControl_1);

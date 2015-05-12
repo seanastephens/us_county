@@ -1,56 +1,5 @@
 /* Written by Brian Lee & Sean Stephens */
 
-var width = 920, height = 600;
-var path = d3.geo.path();
-var zoomScale = d3.behavior.zoom()
-	.scaleExtent([1,10])
-	.on("zoom", zoomControl);
-var map = d3.select('#svg_map');
-
-function layout_set() {
-	var width_size = $(window).width();
-
-	if (width_size <= 920) {
-		$("#svg_map").css({width:width_size});
-	}
-	else {
-		$("#svg_map").css({width:"920"});
-	}
-}
-
-function zoomControl(){
-  map.attr({transform:"translate(" + d3.event.translate + ") scale(" + d3.event.scale + ")"});
-}
-
-var centered;
-
-function clicked(d){
-  var x, y, k;  // x: center-x, y:center-y, k:zoom
-  
-  // If no path is selected
-  if (d && centered !== d) { // d can be omitted. 
-    var center = path.centroid(d);  // centroid will extract the location of the center.
-    x = center[0];  // center will have a [x-value, y-value] type.
-    y = center[1];
-    k = 6;      // zoom
-    centered = d; // Temporarily will save the current position.
-  }
-  else {  // If a selected path is zoomed already
-    x = width / 2;
-    y = weight / 2;
-    k = 1;
-    centered = null;
-  }
-                                                        
-  map.transition()
-    .duration(500)
-    .attr({transform:"translate(" + width / 2 + "," + weight / 2 + ")scale(" + k + 
-    ") translate(" + -x + "," + -y + ")"});
-  
-  map.selectAll("path")
-    .classed("active", centered && function(d){ return d === centered; });
-}
-
 function init_birth() { 
   $(".subject_title").text("Birth Rate per 1,000 Population".toUpperCase()); 
   load_file('birthList.json'); 
@@ -64,6 +13,97 @@ function init_unemp() {
 function init_income() { 
   $(".subject_title").text("Personal Income per Capita".toUpperCase()); 
   load_file('incomeList.json'); 
+}
+
+function lineplot(data, svgId, options) {
+  var svg = d3.select(svgId);
+
+  var w = options.width || console.log('No width passed');
+  var h = options.height || console.log('No height passed');
+
+  var topMargin = 50, botMargin = 40, rightMargin = 0; leftMargin = 50;
+  var wStart = leftMargin, wEnd = w - rightMargin;
+  var hEnd = topMargin, hStart = h - botMargin;
+
+  svg.selectAll('path').remove();
+  svg.selectAll('.axis').remove();
+
+  var xMin = d3.min(data, function(d) { 
+    return d3.min(d.data, function(e) { return e[0] });
+  });
+  var xMax = d3.max(data, function(d) { 
+    return d3.max(d.data, function(e) { return e[0] });
+  });
+  var xExtent = [xMin-.5, xMax+.5];
+
+  var yMin = d3.min(data, function(d) { 
+    return d3.min(d.data, function(e) { return e[1] });
+  });
+  var yMax = 2 * d3.max(data, function(d) { 
+    return d3.mean(d.data, function(e) { return e[1] });
+  });
+  var yExtent = [yMin, yMax];
+
+  var xscale = d3.scale.linear().domain(xExtent).range([wStart,wEnd]);
+  var yscale = d3.scale.linear().domain(yExtent).range([hStart,hEnd]);
+  var xaxis = d3.svg.axis().scale(xscale).orient("bottom").tickFormat(d3.format('d'));
+  var yaxis = d3.svg.axis().scale(yscale).orient("left").tickFormat(d3.format('d'));
+
+  var line = d3.svg.line()
+      .x(function(d) { return xscale(d[0]) })
+      .y(function(d) { return yscale(d[1]) });
+
+  if(options.brushing) {
+    var map = d3.select('#svg_map');
+    var brush = d3.svg.brush()
+                  .x(xscale)
+                  .y(yscale)
+                  .on("brush", brushmove)
+                  .on("brushend", brushend);
+    function brushmove(p) {
+      var e = brush.extent();
+      var selected = {}
+      svg.selectAll(".dataPath").classed('unselectedByLine', function(d) {
+          var sel = _.filter(d.data, function(x) {  
+            return x[0] > e[0][0] && (x[0] < e[0][0] + 1 || x[0] < e[1][0]);
+          });
+          var sel2 = _.filter(sel, function(x) {  
+            return x[1] > e[0][1] && x[1] < e[1][1]; 
+          });
+          if(sel2.length == sel.length) {
+            selected[d.name] = 1;
+            return false;
+          } else {
+            return true;
+          }
+      });
+
+      map.selectAll('.mcounty').classed('unselectedByLine', function(d) {
+        return !selected[codes[d.id].key];
+      });
+    }
+    function brushend() {
+      if (brush.empty()) {
+        d3.selectAll(".dataPath").classed('unselectedByLine', false);
+        map.selectAll(".mcounty").classed('unselectedByLine', false);
+      }
+    }
+    svg.append("g").call(brush);
+  }
+
+  var lines = svg.selectAll("path").data(data).enter().append("path")
+                 .attr("d", function(d) { return line(d.data); });
+
+  svg.append("g")
+      .attr("class", "axis")
+      .attr("transform", "translate(0, " + String(hStart + 10) + ")")
+      .call(xaxis);
+  svg.append("g")
+      .attr("class", "axis")
+      .attr("transform", "translate(" + String(wStart - 10) + ", 0)")
+      .call(yaxis);
+
+  return lines;
 }
 
 function countyTable(d, file, codes, data, convert) {
@@ -83,34 +123,28 @@ function countyTable(d, file, codes, data, convert) {
 var g_data;
 function load_file(fname) {
 
-  var stateAbbrevToFIPS = { "AL":"1", "AK":"2", "AZ":"4", "AR":"5", "CA":"6", "CO":"8", "CT":"9", "DE":"10", "FL":"12", "GA":"13", "HI":"15", "ID":"16", "IL":"17", "IN":"18", "IA":"19", "KS":"20", "KY":"21", "LA":"22", "ME":"23", "MD":"24", "MA":"25", "MI":"26", "MN":"27", "MS":"28", "MO":"29", "MT":"30", "NE":"31", "NV":"32", "NH":"33", "NJ":"34", "NM":"35", "NY":"36", "NC":"37", "ND":"38", "OH":"39", "OK":"40", "OR":"41", "PA":"42", "RI":"44", "SC":"45", "SD":"46", "TN":"47", "TX":"48", "UT":"49", "VT":"50", "VA":"51", "WA":"53", "WV":"54", "WI":"55", "WY":"56" }
-  
   function buildMap(svg, topo) {
-    var path = d3.geo.path().projection(
-        d3.geo.equirectangular().scale(750).center([-90,45])
-        );
-  
+    var path = d3.geo.path()
     var projection = path.projection();
-    var long1 = projection.invert([0, 0])[0];
-    var long2 = projection.invert([mWidth, 0])[0];
-    var lat1 = projection.invert([0, 0])[1];
-    var lat2 = projection.invert([0, mHeight])[1];
-  
+
     var brush = d3.svg.brush()
-                  .x(d3.scale.linear().domain([long1, long2]).range([0,mWidth]))
-                  .y(d3.scale.linear().domain([lat1, lat2]).range([0, mHeight]))
+                  .x(d3.scale.linear().domain([0,mWidth]).range([0,mWidth]))
+                  .y(d3.scale.linear().domain([0,mHeight]).range([0, mHeight]))
                   .on("brush", brushmove)
                   .on("brushend", brushend);
   
     function brushmove(p) {
       var e = brush.extent();
+      e = [projection.invert(e[0]), projection.invert(e[1])];
       var selected = {}
+      console.log(e[0][1], e[1][1]);
       svg.selectAll(".mstate").classed('selectedState', function(d) {
         var coords = _.flatten(_.flatten(d.geometry.coordinates, true), true);
         var inc = _.filter(coords, function(x) {
-          return x[0] > e[0][0] && x[0] < e[1][0] && x[1] > e[0][1] && x[1] < e[1][1];
+          return x[0] > e[0][0] && x[0] < e[1][0] && x[1] < e[0][1] && x[1] > e[1][1];
+          //return x[0] > start[0] && x[0] < end[0] && x[1] > start[1] && x[1] < end[1];
         });
-        if(inc.length > coords.length/3 ) {
+        if(inc.length > coords.length/2 ) {
           selected[d.id] = 1;
           return 1;
         } else {
@@ -180,21 +214,6 @@ function load_file(fname) {
   var svg = d3.select("#svg_map");
   svg.selectAll('*').remove();
   var mWidth = svg.attr("width"), mHeight = svg.attr("height");
-  //svg = svg.append("g");
-  
-  // Load reference data
-  var topo, codes, stateMap;
-  queue()
-    .defer(d3.json, "ctrl/dat/us.json")
-    .defer(d3.json, "ctrl/dat/fixed_ugc.json")
-    .defer(d3.json, 'ctrl/dat/statecodes.json')
-    .await(function(errors, _topo, _codes, _stateMap) {
-      if(errors) console.log(errors);
-      topo = _topo;
-      codes = _codes;
-      stateMap = _stateMap;
-      console.log('reference data loaded');
-    });
   
   function colorMap(svg, data) {
    var keys = d3.keys(data);
@@ -247,191 +266,84 @@ function load_file(fname) {
           });
   }
   
-  // Load data
-  queue().defer(d3.json, 'ctrl/dat/' + fname).await(function(error, fileList) {
-    if(error) { console.log(error); }
-  
-    function deferAll(files, callback) {
-      var q = queue();
-      for(var i = 0; i < files.length; i++) {
-        q.defer(d3.json, 'ctrl/dat/' + files[i]);
-      }
-      q.awaitAll(callback);
-    }
-  
-    deferAll(fileList.countyFiles, processCountyFiles);
-    deferAll(fileList.mapFiles, function(errors, datas) {
-      if(errors) { console.log(errors); }
-      data = datas[0];
-      buildMap(svg, topo);
-      colorMap(svg, data);
-    });
-  });
+  var mapData;
+  var curData;
+  switch(fname) {
+    case 'birthList.json':
+      curData = birthData; break;
+    case 'incomeList.json':
+      curData = incomeData; break;
+    case 'unempList.json':
+      curData = unempData; break;
+    default:
+      console.log('Invalid switch value');
+  }
+
+  mapData = curData[0];
+  buildMap(svg, topo);
+  colorMap(svg, mapData);
  
-  function processCountyFiles(errors, datas) {
-    if(errors) { console.log(errors); }
-    var v = Object.keys(datas[0]);
+  var v = Object.keys(curData[0]);
   
-    var data = [];
-    for(var i = v.length - 1; i >= 0; i--) {
-      var o = [];
-      var index = v[i];
-      for(var j = 0; j < datas.length; j++) {
-        o.push([1990 + j, Number(datas[j][index])]);
-      }
-      data.push({name: v[i], data:o});
+  var data = [];
+  for(var i = v.length - 1; i >= 0; i--) {
+    var o = [];
+    var index = v[i];
+    for(var j = 0; j < curData.length; j++) {
+      o.push([1990 + j, Number(curData[j][index])]);
     }
-    g_data = data;
-    lineplot(data, '#svg_lp1'); 
+    data.push({name: v[i], data:o});
   }
-  
-  // Finally...
-  function lineplot(data, svgId) {
-    var svg = d3.select(svgId);
-  
-    var w = 600, h = 600;
-    var topMargin = 50, botMargin = 40, rightMargin = 0; leftMargin = 50;
-    var wStart = leftMargin, wEnd = w - rightMargin;
-    var hEnd = topMargin, hStart = h - botMargin;
-  
-    svg.selectAll('path').remove();
-    svg.selectAll('.axis').remove();
-    var xMin = d3.min(data, function(d) { 
-      return d3.min(d.data, function(e) { return e[0] });
-    });
-    var xMax = d3.max(data, function(d) { 
-      return d3.max(d.data, function(e) { return e[0] });
-    });
-    var xExtent = [xMin-.5, xMax+.5];
-  
-    var yMin = d3.min(data, function(d) { 
-      return d3.min(d.data, function(e) { return e[1] });
-    });
-    var yMax = 2 * d3.max(data, function(d) { 
-      return d3.mean(d.data, function(e) { return e[1] });
-    });
-    var yExtent = [yMin, yMax];
-  
-    var xscale = d3.scale.linear().domain(xExtent).range([wStart,wEnd]);
-    var yscale = d3.scale.linear().domain(yExtent).range([hStart,hEnd]);
-    var xaxis = d3.svg.axis().scale(xscale).orient("bottom").tickFormat(d3.format('d'));
-    var yaxis = d3.svg.axis().scale(yscale).orient("left").tickFormat(d3.format('d'));
-  
-    var map = d3.select('#svg_map');
-    var brush = d3.svg.brush()
-                  .x(xscale)
-                  .y(yscale)
-                  .on("brush", brushmove)
-                  .on("brushend", brushend);
-    function brushmove(p) {
-      var e = brush.extent();
-      var selected = {}
-      svg.selectAll(".dataPath").classed('unselectedByLine', function(d) {
-          var sel = _.filter(d.data, function(x) {  
-            return x[0] > e[0][0] && (x[0] < e[0][0] + 1 || x[0] < e[1][0]);
-          });
-          var sel2 = _.filter(sel, function(x) {  
-            return x[1] > e[0][1] && x[1] < e[1][1]; 
-          });
-          if(sel2.length == sel.length) {
-            selected[d.name] = 1;
-            return false;
-          } else {
-            return true;
-          }
-      });
+  g_data = data;
 
-      map.selectAll('.mcounty').classed('unselectedByLine', function(d) {
-        return !selected[codes[d.id].key];
-      });
-    }
-    function brushend() {
-      if (brush.empty()) {
-        d3.selectAll(".dataPath").classed('unselectedByLine', false);
-        map.selectAll(".mcounty").classed('unselectedByLine', false);
-      }
-    }
-    svg.append("g").call(brush);
-  
-    var line = d3.svg.line()
-        .x(function(d) { return xscale(d[0]) })
-        .y(function(d) { return yscale(d[1]) });
-  
-    var lines = svg.selectAll("path").data(data).enter().append("path")
-                   .classed("dataPath", true)
-                   .attr("d", function(d) { return line(d.data); })
-                   .on('mouseenter', function(d) { 
-                     d3.select('#detail_table').selectAll('tr').remove();
-                     d3.select('#detail_table')
-                       .selectAll("tr")
-                       .data(countyTable(d, fname, codes, data, true))
-                       .enter().append("tr")
-                       .selectAll("td")
-                       .data(function(r) { return r; })
-                       .enter().append("td")
-                       .text(function(d) { return String(d); });
-                   })
-  
-    svg.append("g")
-        .attr("class", "axis")
-        .attr("transform", "translate(0, " + String(hStart + 10) + ")")
-        .call(xaxis);
-    svg.append("g")
-        .attr("class", "axis")
-        .attr("transform", "translate(" + String(wStart - 10) + ", 0)")
-        .call(yaxis);
+  var options = {
+    'width':600, 
+    'height':600, 
+    'brushing': true
   }
-
+  lineplot(data, '#svg_lp1', options)
+      .attr('mouseenter', function(d) { 
+        d3.select('#detail_table').selectAll('tr').remove();
+        d3.select('#detail_table')
+          .selectAll("tr")
+          .data(countyTable(d, fname, codes, data, true))
+          .enter().append("tr")
+          .selectAll("td")
+          .data(function(r) { return r; })
+          .enter().append("td")
+          .text(function(d) { return String(d); });
+      })
+      .attr('fill', 'steelblue')
+      .classed('dataPath', true);
 }
 
 function init_cbox() {
-  var tcodes, tincome, tbirths, tunemp;
-  d3.json("ctrl/dat/fixed_ugc.json", function(error, _codes) { 
-    if(error) { console.log(error); }
-    tcodes = _codes;
-  });
-    
-  queue().defer(d3.json, 'ctrl/dat/incomeList.json').await(function(error, incomeList) {
-    if(error) { console.log(error); }
-    queue().defer(d3.json, 'ctrl/dat/birthList.json').await(function(error, birthList) {
-      if(error) { console.log(error); }
-      queue().defer(d3.json, 'ctrl/dat/unempList.json').await(function(error, unempList) {
-        if(error) { console.log(error); }
-        var files = incomeList.countyFiles; 
-        var q = queue();
-        for(var i = 0; i < files.length; i++) {
-          q.defer(d3.json, 'ctrl/dat/' + files[i]);
-        }
-        q.awaitAll(function(error, list) { 
-          tincome = list; 
-          var files = birthList.countyFiles; 
-          var q = queue();
-          for(var i = 0; i < files.length; i++) {
-            q.defer(d3.json, 'ctrl/dat/' + files[i]);
-          }
-          q.awaitAll(function(error, list) { 
-            tbirth = list; 
-            var files = unempList.countyFiles; 
-            var q = queue();
-            for(var i = 0; i < files.length; i++) {
-              q.defer(d3.json, 'ctrl/dat/' + files[i]);
-            }
-            q.awaitAll(function(error, list) { 
-              tunemp = list; 
-              tunemp = tprocess(tunemp);
-              tbirth = tprocess(tbirth);
-              tincome = tprocess(tincome);
-              lineplot(tunemp, '#svg_comp_1');
-              lineplot(tbirth, '#svg_comp_2');
-              lineplot(tincome, '#svg_comp_3');
-            });
-          });
-        });
-      });
-    });
-  });
+  var income = filterAndStack(unempData);
+  var births = filterAndStack(birthData);
+  var unemp  = filterAndStack(incomeData);
 
-  function tprocess(datas) {
+  var options = {
+    'width': 350, 
+    'height': 300,
+  };
+
+  function postProcessing() {
+    var rColors = d3.scale.category10();
+    this
+      .on('mouseenter', function(d) { 
+        d3.select('#saved_detail_box').text(d.name);
+      })
+      .style('stroke', function(d, i) { return rColors(i); })
+      .style('fill', 'none')
+      .style('opacity', 1)
+      .style('stroke-width', 3);
+  }
+
+  lineplot(unemp, '#svg_comp_1', options).call(postProcessing);
+  lineplot(births, '#svg_comp_2', options).call(postProcessing);
+  lineplot(income, '#svg_comp_3', options).call(postProcessing);
+
+  function filterAndStack(datas) {
     var v = Object.keys(datas[0]);
   
     var data = [];
@@ -443,66 +355,9 @@ function init_cbox() {
       }
       data.push({name: v[i], data:o});
     }
-    var valid = _.map(county_box, function(d) { return tcodes[d].key; });
+    var valid = _.map(county_box, function(d) { return codes[d].key; });
     var t_data = _.filter(data, function(d) { return valid.indexOf(d.name) > -1; });
     return t_data;
   }
 
-
-  function lineplot(data, svgId) {
-    var svg = d3.select(svgId);
-  
-    var w = 350, h = 300;
-    var topMargin = 50, botMargin = 40, rightMargin = 0; leftMargin = 50;
-    var wStart = leftMargin, wEnd = w - rightMargin;
-    var hEnd = topMargin, hStart = h - botMargin;
-  
-    svg.selectAll('path').remove();
-    svg.selectAll('.axis').remove();
-    var xMin = d3.min(data, function(d) { 
-      return d3.min(d.data, function(e) { return e[0] });
-    });
-    var xMax = d3.max(data, function(d) { 
-      return d3.max(d.data, function(e) { return e[0] });
-    });
-    var xExtent = [xMin-.5, xMax+.5];
-  
-    var yMin = d3.min(data, function(d) { 
-      return d3.min(d.data, function(e) { return e[1] });
-    });
-    var yMax = 2 * d3.max(data, function(d) { 
-      return d3.mean(d.data, function(e) { return e[1] });
-    });
-    var yExtent = [yMin, yMax];
-  
-    var xscale = d3.scale.linear().domain(xExtent).range([wStart,wEnd]);
-    var yscale = d3.scale.linear().domain(yExtent).range([hStart,hEnd]);
-    var xaxis = d3.svg.axis().scale(xscale).orient("bottom").tickFormat(d3.format('d'));
-    var yaxis = d3.svg.axis().scale(yscale).orient("left").tickFormat(d3.format('d'));
-  
-    var rColors = d3.scale.category10();
-
-    var line = d3.svg.line()
-        .x(function(d) { return xscale(d[0]) })
-        .y(function(d) { return yscale(d[1]) });
-
-    var lines = svg.selectAll("path").data(data).enter().append("path")
-                   .classed('dataPath', true)
-                   .style('stroke-width', 3)
-                   .style('opacity', 1)
-                   .style('stroke', function(d, i) { return rColors(i); })
-                   .attr("d", function(d) { return line(d.data); })
-                   .on('mouseenter', function(d) {
-                     d3.select('#saved_detail_box').text(d.name);
-                   });
-  
-    svg.append("g")
-        .attr("class", "axis")
-        .attr("transform", "translate(0, " + String(hStart + 10) + ")")
-        .call(xaxis);
-    svg.append("g")
-        .attr("class", "axis")
-        .attr("transform", "translate(" + String(wStart - 10) + ", 0)")
-        .call(yaxis);
-  }
 }
