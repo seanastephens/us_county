@@ -61,3 +61,7 @@ queue().defer(d3.json, 'ctrl/dat/unempList.json')
     });
   });
 
+function dataIsLoaded() {
+  return codes && topo && birthData && incomeData && unempData;
+}
+  

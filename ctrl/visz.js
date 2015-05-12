@@ -1,4 +1,4 @@
-/* Written by Brian Lee & Sean Stephens */
+var DETAIL_TRANSITIONS = true;
 
 function init_birth() { 
   $(".subject_title").text("Birth Rate per 1,000 Population".toUpperCase()); 
@@ -122,14 +122,25 @@ function countyTable(d, file, codes, data, convert) {
 
 var g_data;
 function load_file(fname) {
-
+  if(!dataIsLoaded()) {
+    setTimeout(load_file, 200, fname);
+    return;
+  }
   function buildMap(svg, topo) {
-    var path = d3.geo.path()
-    var projection = path.projection();
+    //var projection = d3.geo.mercator()
+    var projection = d3.geo.conicEqualArea()
+        .rotate([98, 0])
+        .center([-10, 48])
+        .scale(600)
+        .translate([width / 2, height / 2])
+        .precision(.1);
+    var path = d3.geo.path().projection(projection);
+    //var path = d3.geo.path();
+    //var projection = path.projection();
 
     var brush = d3.svg.brush()
-                  .x(d3.scale.linear().domain([0,mWidth]).range([0,mWidth]))
-                  .y(d3.scale.linear().domain([0,mHeight]).range([0, mHeight]))
+                  .x(d3.scale.linear().domain([0,width]).range([0,width]))
+                  .y(d3.scale.linear().domain([0,height]).range([0, height]))
                   .on("brush", brushmove)
                   .on("brushend", brushend);
   
@@ -137,12 +148,28 @@ function load_file(fname) {
       var e = brush.extent();
       e = [projection.invert(e[0]), projection.invert(e[1])];
       var selected = {}
-      console.log(e[0][1], e[1][1]);
+      var shape = { 
+          geometry: {
+              coordinates:[
+                [
+                  [e[0][0], e[0][1]],
+                  [e[1][0], e[0][1]],
+                  [e[1][0], e[1][1]],
+                  [e[0][0], e[1][1]],
+                  [e[0][0], e[0][1]]
+                ]
+              ],
+              type: 'Polygon'
+          },
+          type: 'Feature'
+      }
+      var poly = d3.select('#shape').attr('d', function() { 
+          return path(shape); 
+      });
       svg.selectAll(".mstate").classed('selectedState', function(d) {
         var coords = _.flatten(_.flatten(d.geometry.coordinates, true), true);
         var inc = _.filter(coords, function(x) {
           return x[0] > e[0][0] && x[0] < e[1][0] && x[1] < e[0][1] && x[1] > e[1][1];
-          //return x[0] > start[0] && x[0] < end[0] && x[1] > start[1] && x[1] < end[1];
         });
         if(inc.length > coords.length/2 ) {
           selected[d.id] = 1;
@@ -177,6 +204,12 @@ function load_file(fname) {
     }
   
     svg.append("g").call(brush);
+    svg.append('path').attr('id', 'shape').attr('fill', 'red').attr('opacity', .2);
+
+    var max = d3.max(_.map(topojson.feature(topo, topo.objects.counties).features, function(d) {
+       return Number(mapData[codes[d.id].key]);
+    }));
+    var scale = d3.scale.linear().domain([0,max]).range([0,50]);
 
     svg.selectAll("path")
       .data(topojson.feature(topo, topo.objects.counties).features)
@@ -184,7 +217,12 @@ function load_file(fname) {
       .classed('mcounty', true)
       .attr('d', path)
       .on('mouseenter', function(d) { 
+
+        var saved_h = []
+        d3.selectAll('.bars').each(function(d) { saved_h.push(this.getBBox().height); });
+
         d3.select('#detail_table').selectAll('tr').remove();
+
         d3.select('#detail_table')
           .selectAll("tr")
           .data(countyTable(d, fname, codes, g_data, false))
@@ -193,6 +231,31 @@ function load_file(fname) {
           .data(function(r) { return r; })
           .enter().append("td")
           .text(function(d) { return String(d); });
+
+        var bars = d3.select('#detail_table')
+          .append("tr")
+          .selectAll("td")
+          .data(countyTable(d, fname, codes, g_data, false)[1])
+          .enter().append("td").append('svg')
+          .attr('width', 30).attr('height', 50)
+          .append('rect')
+          .classed('bars', true)
+          .attr('fill', 'steelblue')
+          .attr('x', 0)
+          .attr('width', 30);
+
+        if(DETAIL_TRANSITIONS) {
+          bars
+            .attr('y', function(d, i) { return i > 0 && saved_h.length > 0 ? 50 - saved_h[i] : 0; })
+            .attr('height', function(d, i) { return i > 0 && saved_h.length > 0 ? saved_h[i] : 0; })
+            .transition().duration(250)
+            .attr('y', function(d, i) { return i > 0 ? 50 - scale(d) : 0; })
+            .attr('height', function(d, i) { return i > 0 ? scale(d) : 0; });
+        } else {
+          bars
+            .attr('y', function(d, i) { return i > 0 ? 50 - scale(d) : 0; })
+            .attr('height', function(d, i) { return i > 0 ? scale(d) : 0; });
+        }
       });
     
     svg.append("path")
@@ -213,7 +276,7 @@ function load_file(fname) {
 
   var svg = d3.select("#svg_map");
   svg.selectAll('*').remove();
-  var mWidth = svg.attr("width"), mHeight = svg.attr("height");
+  var width = svg.attr("width"), height = svg.attr("height");
   
   function colorMap(svg, data) {
    var keys = d3.keys(data);
@@ -242,8 +305,8 @@ function load_file(fname) {
   var legend = svg.append("g")
       .attr("id", "legendTransform")
       .attr("transform", "translate(" 
-          + (mWidth - 3 * boxWidth) + "," 
-          + (3*mHeight/4 - legendHeight/2) + ")")
+          + (width - 3 * boxWidth) + "," 
+          + (height/2 - legendHeight/2) + ")")
       .selectAll("rect")
       .data(boxes)
       .enter()
