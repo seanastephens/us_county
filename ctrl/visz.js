@@ -127,7 +127,7 @@ function load_file(fname) {
     return;
   }
   function buildMap(svg, topo) {
-    //var projection = d3.geo.mercator()
+   // var projection = d3.geo.mercator()
     var projection = d3.geo.conicEqualArea()
         .rotate([98, 0])
         .center([-10, 48])
@@ -299,7 +299,7 @@ function load_file(fname) {
   var quantiles = d3.range(numBoxes).map(function(i) { 
     return d3.quantile(sortedValues, .1 + .2 * i); 
   });
-  // legendScale : boxIndex --> GPA
+
   var legendScale = d3.scale.linear().domain(d3.range(numBoxes).reverse()).range(quantiles);
 
   var legend = svg.append("g")
@@ -387,7 +387,7 @@ function init_cbox() {
 
   var options = {
     'width': 350, 
-    'height': 300,
+    'height': 300
   };
 
   function postProcessing() {
